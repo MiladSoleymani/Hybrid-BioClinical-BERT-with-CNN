@@ -24,7 +24,13 @@ from torch.utils.data import DataLoader, Dataset
 from transformers import AutoTokenizer, AutoModel
 from torch.optim import AdamW
 from sklearn.model_selection import StratifiedKFold, train_test_split
-from sklearn.metrics import precision_recall_fscore_support, accuracy_score, confusion_matrix, roc_curve, auc
+from sklearn.metrics import (
+    precision_recall_fscore_support,
+    accuracy_score,
+    confusion_matrix,
+    roc_curve,
+    auc,
+)
 from sklearn.preprocessing import label_binarize
 from imblearn.over_sampling import RandomOverSampler
 import matplotlib.pyplot as plt
@@ -36,7 +42,7 @@ from tqdm.auto import tqdm
 # =============================================================================
 
 # --- SERVER CONFIGURATION ---
-DATA_DIR = "./data"
+DATA_DIR = "/kaggle/input/kuc-hackathon-winter-2018"
 MODEL_CACHE_DIR = "./pretrained_models"
 RESULTS_DIR = "./experiment_results"
 CHECKPOINT_DIR = "./checkpoints"
@@ -62,6 +68,7 @@ ALL_MODEL_RESULTS = {}
 # 2. Data Loading & Hold-out Split (matching notebook cell 2)
 # =============================================================================
 
+
 def load_data():
     print("Loading Data from Local Server Storage...")
 
@@ -76,15 +83,19 @@ def load_data():
             df_all = pd.concat([df_train, df_test_file])
             print("Data loaded successfully from local paths.")
         else:
-            raise FileNotFoundError(f"CSVs not found in {DATA_DIR}. Please upload them.")
+            raise FileNotFoundError(
+                f"CSVs not found in {DATA_DIR}. Please upload them."
+            )
 
     except Exception as e:
         print(f"Error loading data: {e}")
         # Generate dummy data ONLY if loading fails (Code verification fallback)
-        df_all = pd.DataFrame({
-            'review': ['good drug'] * 100 + ['bad drug'] * 100 + ['okay'] * 100,
-            'rating': [10] * 100 + [1] * 100 + [5] * 100
-        })
+        df_all = pd.DataFrame(
+            {
+                "review": ["good drug"] * 100 + ["bad drug"] * 100 + ["okay"] * 100,
+                "rating": [10] * 100 + [1] * 100 + [5] * 100,
+            }
+        )
 
     # Binning
     def bin_rating(r):
@@ -100,15 +111,15 @@ def load_data():
             return 2  # Positive
         return None
 
-    df_all['label'] = df_all['rating'].apply(bin_rating)
-    df_all = df_all.rename(columns={'review': 'text'}).dropna(subset=['text', 'label'])
-    df_all['label'] = df_all['label'].astype(int)
+    df_all["label"] = df_all["rating"].apply(bin_rating)
+    df_all = df_all.rename(columns={"review": "text"}).dropna(subset=["text", "label"])
+    df_all["label"] = df_all["label"].astype(int)
 
     print("Using FULL dataset (No Sampling).")
 
     # Final split: 80% for training/validation (which goes into K-Fold) and 20% for final test
     train_val_df, holdout_test_df = train_test_split(
-        df_all, test_size=0.2, random_state=42, stratify=df_all['label']
+        df_all, test_size=0.2, random_state=42, stratify=df_all["label"]
     )
 
     print(f"Train/CV Data: {len(train_val_df)}")
@@ -132,12 +143,16 @@ class DrugDataset(Dataset):
         text = str(self.texts[item])
         label = self.labels[item]
         encoding = self.tokenizer.encode_plus(
-            text, max_length=self.max_len, padding='max_length', truncation=True, return_tensors='pt'
+            text,
+            max_length=self.max_len,
+            padding="max_length",
+            truncation=True,
+            return_tensors="pt",
         )
         return {
-            'input_ids': encoding['input_ids'].flatten(),
-            'attention_mask': encoding['attention_mask'].flatten(),
-            'label': torch.tensor(label, dtype=torch.long)
+            "input_ids": encoding["input_ids"].flatten(),
+            "attention_mask": encoding["attention_mask"].flatten(),
+            "label": torch.tensor(label, dtype=torch.long),
         }
 
 
@@ -145,22 +160,29 @@ class DrugDataset(Dataset):
 # 3. Data Visualization (matching notebook cell 3)
 # =============================================================================
 
+
 def plot_label_distribution(df, title="Data Distribution"):
     plt.figure(figsize=(8, 5))
     # Mapping numbers to class names
-    label_map = {0: 'Negative', 1: 'Neutral', 2: 'Positive'}
+    label_map = {0: "Negative", 1: "Neutral", 2: "Positive"}
     df_viz = df.copy()
-    df_viz['label_name'] = df_viz['label'].map(label_map)
+    df_viz["label_name"] = df_viz["label"].map(label_map)
 
-    sns.countplot(x='label_name', data=df_viz, order=['Negative', 'Neutral', 'Positive'], palette='viridis')
+    sns.countplot(
+        x="label_name",
+        data=df_viz,
+        order=["Negative", "Neutral", "Positive"],
+        palette="viridis",
+    )
     plt.title(title, fontsize=14)
-    plt.xlabel('Sentiment')
-    plt.ylabel('Count')
+    plt.xlabel("Sentiment")
+    plt.ylabel("Count")
 
 
 # =============================================================================
 # 4. Model Architectures (matching notebook cell 4)
 # =============================================================================
+
 
 # 1. Baseline BERT (Frozen) + MLP
 class BertBaseline(nn.Module):
@@ -190,13 +212,15 @@ class CNN_Text(nn.Module):
         super(CNN_Text, self).__init__()
         self.embedding = nn.Embedding(vocab_size, embed_dim)
         if weights is not None:
-            self.embedding.load_state_dict({'weight': torch.tensor(weights)})
+            self.embedding.load_state_dict({"weight": torch.tensor(weights)})
             self.embedding.weight.requires_grad = False
 
-        self.convs = nn.ModuleList([
-            nn.Conv1d(in_channels=embed_dim, out_channels=100, kernel_size=k)
-            for k in [1, 2, 3, 4, 5]
-        ])
+        self.convs = nn.ModuleList(
+            [
+                nn.Conv1d(in_channels=embed_dim, out_channels=100, kernel_size=k)
+                for k in [1, 2, 3, 4, 5]
+            ]
+        )
         self.fc = nn.Linear(len(self.convs) * 100, 100)
         self.dropout = nn.Dropout(0.5)
         self.out = nn.Linear(100, n_classes)
@@ -225,15 +249,12 @@ class BertFineTune(nn.Module):
         for layer in self.bert.encoder.layer[-4:]:
             for param in layer.parameters():
                 param.requires_grad = True
-        if hasattr(self.bert, 'pooler'):
+        if hasattr(self.bert, "pooler"):
             for param in self.bert.pooler.parameters():
                 param.requires_grad = True
 
         self.classifier = nn.Sequential(
-            nn.Linear(768, 100),
-            nn.ReLU(),
-            nn.Dropout(0.1),
-            nn.Linear(100, n_classes)
+            nn.Linear(768, 100), nn.ReLU(), nn.Dropout(0.1), nn.Linear(100, n_classes)
         )
 
     def forward(self, input_ids, attention_mask):
@@ -259,9 +280,15 @@ class HybridBioClinicalBertCNN(nn.Module):
         # We use the last_hidden_state for CNN, not the pooler_output
         last_hidden = outputs.last_hidden_state.permute(0, 2, 1)  # (Batch, 768, Seq)
 
-        x1 = F.max_pool1d(F.relu(self.conv1(last_hidden)), last_hidden.shape[2]).squeeze(2)
-        x2 = F.max_pool1d(F.relu(self.conv2(last_hidden)), last_hidden.shape[2]).squeeze(2)
-        x3 = F.max_pool1d(F.relu(self.conv3(last_hidden)), last_hidden.shape[2]).squeeze(2)
+        x1 = F.max_pool1d(
+            F.relu(self.conv1(last_hidden)), last_hidden.shape[2]
+        ).squeeze(2)
+        x2 = F.max_pool1d(
+            F.relu(self.conv2(last_hidden)), last_hidden.shape[2]
+        ).squeeze(2)
+        x3 = F.max_pool1d(
+            F.relu(self.conv3(last_hidden)), last_hidden.shape[2]
+        ).squeeze(2)
 
         x = torch.cat((x1, x2, x3), dim=1)
         x = self.dropout(x)
@@ -272,7 +299,10 @@ class HybridBioClinicalBertCNN(nn.Module):
 # 5. Universal Training Engine (matching notebook cell 5)
 # =============================================================================
 
-def train_evaluate_engine(model_name_str, model_obj, tokenizer, train_df_cv, test_df_holdout):
+
+def train_evaluate_engine(
+    model_name_str, model_obj, tokenizer, train_df_cv, test_df_holdout
+):
     print(f"\n{'=' * 10} Processing Model: {model_name_str} {'=' * 10}")
 
     # Stratified K-Fold
@@ -287,7 +317,9 @@ def train_evaluate_engine(model_name_str, model_obj, tokenizer, train_df_cv, tes
         model_obj.to(device)
     else:
         # Start K-Fold Training
-        for fold, (train_idx, val_idx) in enumerate(skf.split(train_df_cv['text'], train_df_cv['label'])):
+        for fold, (train_idx, val_idx) in enumerate(
+            skf.split(train_df_cv["text"], train_df_cv["label"])
+        ):
             print(f"\n--- Fold {fold + 1}/{N_FOLDS} ---")
 
             # 1. Split
@@ -296,15 +328,26 @@ def train_evaluate_engine(model_name_str, model_obj, tokenizer, train_df_cv, tes
 
             # 2. Balance (ONLY Train Data)
             ros = RandomOverSampler(random_state=42)
-            X_res, y_res = ros.fit_resample(fold_train['text'].values.reshape(-1, 1), fold_train['label'].values)
-            fold_train_bal = pd.DataFrame({'text': X_res.flatten(), 'label': y_res})
+            X_res, y_res = ros.fit_resample(
+                fold_train["text"].values.reshape(-1, 1), fold_train["label"].values
+            )
+            fold_train_bal = pd.DataFrame({"text": X_res.flatten(), "label": y_res})
 
             # 3. Dataloaders
-            train_ds = DrugDataset(fold_train_bal['text'].values, fold_train_bal['label'].values, tokenizer, MAX_LEN)
-            val_ds = DrugDataset(fold_val['text'].values, fold_val['label'].values, tokenizer, MAX_LEN)
+            train_ds = DrugDataset(
+                fold_train_bal["text"].values,
+                fold_train_bal["label"].values,
+                tokenizer,
+                MAX_LEN,
+            )
+            val_ds = DrugDataset(
+                fold_val["text"].values, fold_val["label"].values, tokenizer, MAX_LEN
+            )
 
             # Reduce number of workers if needed, pin_memory=True for GPU
-            train_loader = DataLoader(train_ds, batch_size=BATCH_SIZE, shuffle=True, pin_memory=True)
+            train_loader = DataLoader(
+                train_ds, batch_size=BATCH_SIZE, shuffle=True, pin_memory=True
+            )
             val_loader = DataLoader(val_ds, batch_size=BATCH_SIZE, pin_memory=True)
 
             # 4. Reset Model Weights
@@ -318,9 +361,9 @@ def train_evaluate_engine(model_name_str, model_obj, tokenizer, train_df_cv, tes
                 total_loss = 0
                 model_obj.train()
                 for batch in tqdm(train_loader, leave=False, desc=f"Epoch {epoch + 1}"):
-                    input_ids = batch['input_ids'].to(device)
-                    mask = batch['attention_mask'].to(device)
-                    labels = batch['label'].to(device)
+                    input_ids = batch["input_ids"].to(device)
+                    mask = batch["attention_mask"].to(device)
+                    labels = batch["label"].to(device)
 
                     optimizer.zero_grad()
                     outputs = model_obj(input_ids, mask)
@@ -334,9 +377,9 @@ def train_evaluate_engine(model_name_str, model_obj, tokenizer, train_df_cv, tes
                 correct = 0
                 with torch.no_grad():
                     for batch in val_loader:
-                        input_ids = batch['input_ids'].to(device)
-                        mask = batch['attention_mask'].to(device)
-                        labels = batch['label'].to(device)
+                        input_ids = batch["input_ids"].to(device)
+                        mask = batch["attention_mask"].to(device)
+                        labels = batch["label"].to(device)
                         outputs = model_obj(input_ids, mask)
                         _, preds = torch.max(outputs, dim=1)
                         correct += torch.sum(preds == labels).item()
@@ -355,7 +398,12 @@ def train_evaluate_engine(model_name_str, model_obj, tokenizer, train_df_cv, tes
     model_obj.to(device)
     model_obj.eval()
 
-    test_ds = DrugDataset(test_df_holdout['text'].values, test_df_holdout['label'].values, tokenizer, MAX_LEN)
+    test_ds = DrugDataset(
+        test_df_holdout["text"].values,
+        test_df_holdout["label"].values,
+        tokenizer,
+        MAX_LEN,
+    )
     test_loader = DataLoader(test_ds, batch_size=BATCH_SIZE, pin_memory=True)
 
     all_preds = []
@@ -364,9 +412,9 @@ def train_evaluate_engine(model_name_str, model_obj, tokenizer, train_df_cv, tes
 
     with torch.no_grad():
         for batch in test_loader:
-            input_ids = batch['input_ids'].to(device)
-            mask = batch['attention_mask'].to(device)
-            labels = batch['label'].to(device)
+            input_ids = batch["input_ids"].to(device)
+            mask = batch["attention_mask"].to(device)
+            labels = batch["label"].to(device)
 
             outputs = model_obj(input_ids, mask)
             probs = F.softmax(outputs, dim=1)
@@ -378,9 +426,9 @@ def train_evaluate_engine(model_name_str, model_obj, tokenizer, train_df_cv, tes
 
     # Store Results
     ALL_MODEL_RESULTS[model_name_str] = {
-        'y_true': np.array(all_labels),
-        'y_pred': np.array(all_preds),
-        'y_probs': np.array(all_probs)
+        "y_true": np.array(all_labels),
+        "y_pred": np.array(all_preds),
+        "y_probs": np.array(all_probs),
     }
 
     # Cleanup
@@ -393,6 +441,7 @@ def train_evaluate_engine(model_name_str, model_obj, tokenizer, train_df_cv, tes
 # 6. Execute All Models (matching notebook cell 6)
 # =============================================================================
 
+
 def run_all_models(train_val_df, holdout_test_df):
     # --- DEFINING EXACT LOCAL PATHS ---
     BERT_PATH = os.path.join(MODEL_CACHE_DIR, "bert-base-cased")
@@ -403,29 +452,49 @@ def run_all_models(train_val_df, holdout_test_df):
     print("Loading Tokenizers from Local Path...")
     # Load Tokenizers
     bert_tokenizer = AutoTokenizer.from_pretrained(BERT_PATH, local_files_only=True)
-    bio_tokenizer = AutoTokenizer.from_pretrained(BIO_CLINICAL_PATH, local_files_only=True)
+    bio_tokenizer = AutoTokenizer.from_pretrained(
+        BIO_CLINICAL_PATH, local_files_only=True
+    )
 
     # --- 1. Run BERT Baseline ---
     model1 = BertBaseline(BERT_PATH, n_classes=3)
-    train_evaluate_engine("1_BERT_Baseline", model1, bert_tokenizer, train_val_df, holdout_test_df)
+    train_evaluate_engine(
+        "1_BERT_Baseline", model1, bert_tokenizer, train_val_df, holdout_test_df
+    )
 
     # --- 2. Run CNN (Simulating Word2Vec input) ---
     print("Running CNN...")
     # CNN uses BERT tokenizer for vocab mapping (Embeddings are trainable here)
     model2 = CNN_Text(vocab_size=bert_tokenizer.vocab_size, embed_dim=300, n_classes=3)
-    train_evaluate_engine("2_CNN_Model", model2, bert_tokenizer, train_val_df, holdout_test_df)
+    train_evaluate_engine(
+        "2_CNN_Model", model2, bert_tokenizer, train_val_df, holdout_test_df
+    )
 
     # --- 3. Run BERT Fine-Tuned ---
     model3 = BertFineTune(BERT_PATH, n_classes=3)
-    train_evaluate_engine("3_BERT_FineTuned", model3, bert_tokenizer, train_val_df, holdout_test_df)
+    train_evaluate_engine(
+        "3_BERT_FineTuned", model3, bert_tokenizer, train_val_df, holdout_test_df
+    )
 
     # --- 4. Run Bio+Clinical BERT ---
     model4 = BertFineTune(BIO_CLINICAL_PATH, n_classes=3)
-    train_evaluate_engine("4_BioClinicalBERT_FineTuned", model4, bio_tokenizer, train_val_df, holdout_test_df)
+    train_evaluate_engine(
+        "4_BioClinicalBERT_FineTuned",
+        model4,
+        bio_tokenizer,
+        train_val_df,
+        holdout_test_df,
+    )
 
     # --- 5. Run Hybrid Bio+Clinical BERT + CNN ---
     model5 = HybridBioClinicalBertCNN(BIO_CLINICAL_PATH, n_classes=3)
-    train_evaluate_engine("5_Hybrid_BioClinicalBERT_CNN", model5, bio_tokenizer, train_val_df, holdout_test_df)
+    train_evaluate_engine(
+        "5_Hybrid_BioClinicalBERT_CNN",
+        model5,
+        bio_tokenizer,
+        train_val_df,
+        holdout_test_df,
+    )
 
     print("\nAll models processed successfully!")
 
@@ -434,16 +503,17 @@ def run_all_models(train_val_df, holdout_test_df):
 # 7. Final Comparative Visualization (matching notebook cell 7)
 # =============================================================================
 
+
 def generate_visualizations():
     plt.figure(figsize=(15, 12))
 
     # 1. ROC Curve Comparison (Macro-Average)
     plt.subplot(2, 1, 1)
-    colors = ['blue', 'orange', 'green', 'red', 'purple']
+    colors = ["blue", "orange", "green", "red", "purple"]
 
     for i, (name, res) in enumerate(ALL_MODEL_RESULTS.items()):
-        y_true = res['y_true']
-        y_probs = res['y_probs']
+        y_true = res["y_true"]
+        y_probs = res["y_probs"]
 
         # Binarize labels for ROC
         y_true_bin = label_binarize(y_true, classes=[0, 1, 2])
@@ -465,15 +535,20 @@ def generate_visualizations():
             mean_tpr += np.interp(all_fpr, fpr[j], tpr[j])
         mean_tpr /= n_classes
 
-        plt.plot(all_fpr, mean_tpr, color=colors[i], lw=2,
-                 label=f'{name} (AUC = {auc(all_fpr, mean_tpr):.2f})')
+        plt.plot(
+            all_fpr,
+            mean_tpr,
+            color=colors[i],
+            lw=2,
+            label=f"{name} (AUC = {auc(all_fpr, mean_tpr):.2f})",
+        )
 
-    plt.plot([0, 1], [0, 1], 'k--', lw=2)
+    plt.plot([0, 1], [0, 1], "k--", lw=2)
     plt.xlim([0.0, 1.0])
     plt.ylim([0.0, 1.05])
-    plt.xlabel('False Positive Rate')
-    plt.ylabel('True Positive Rate')
-    plt.title('Comparison of ROC Curves (Macro-Average) Across All Models')
+    plt.xlabel("False Positive Rate")
+    plt.ylabel("True Positive Rate")
+    plt.title("Comparison of ROC Curves (Macro-Average) Across All Models")
     plt.legend(loc="lower right")
     plt.grid(True)
 
@@ -481,14 +556,14 @@ def generate_visualizations():
     plt.figure(figsize=(20, 4))
     for i, (name, res) in enumerate(ALL_MODEL_RESULTS.items()):
         plt.subplot(1, 5, i + 1)
-        cm = confusion_matrix(res['y_true'], res['y_pred'])
-        sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', cbar=False)
+        cm = confusion_matrix(res["y_true"], res["y_pred"])
+        sns.heatmap(cm, annot=True, fmt="d", cmap="Blues", cbar=False)
         plt.title(name, fontsize=10)
-        plt.xlabel('Predicted')
+        plt.xlabel("Predicted")
         if i == 0:
-            plt.ylabel('True')
-        plt.xticks([0.5, 1.5, 2.5], ['Neg', 'Neu', 'Pos'])
-        plt.yticks([0.5, 1.5, 2.5], ['Neg', 'Neu', 'Pos'])
+            plt.ylabel("True")
+        plt.xticks([0.5, 1.5, 2.5], ["Neg", "Neu", "Pos"])
+        plt.yticks([0.5, 1.5, 2.5], ["Neg", "Neu", "Pos"])
 
     plt.tight_layout()
     # --- SAVING RESULTS TO RESULTS_DIR ---
@@ -500,12 +575,17 @@ def generate_visualizations():
     print("\n--- Final Performance Summary ---")
     summary_data = []
     for name, res in ALL_MODEL_RESULTS.items():
-        acc = accuracy_score(res['y_true'], res['y_pred'])
-        p, r, f1, _ = precision_recall_fscore_support(res['y_true'], res['y_pred'], average='macro')
+        acc = accuracy_score(res["y_true"], res["y_pred"])
+        p, r, f1, _ = precision_recall_fscore_support(
+            res["y_true"], res["y_pred"], average="macro"
+        )
         summary_data.append([name, acc, p, r, f1])
 
-    df_summary = pd.DataFrame(summary_data, columns=['Model', 'Accuracy', 'Macro Precision', 'Macro Recall', 'Macro F1'])
-    df_summary = df_summary.sort_values(by='Macro F1', ascending=False)
+    df_summary = pd.DataFrame(
+        summary_data,
+        columns=["Model", "Accuracy", "Macro Precision", "Macro Recall", "Macro F1"],
+    )
+    df_summary = df_summary.sort_values(by="Macro F1", ascending=False)
 
     # Print to console
     print(df_summary.to_string(index=False))
